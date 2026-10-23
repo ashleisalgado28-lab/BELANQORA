@@ -422,7 +422,40 @@ client.auth.onAuthStateChange(()=>{setTimeout(refresh,0)});refresh();
 <div style="color:#96713b;letter-spacing:.16em;font-size:12px;font-weight:700">BELANQORA ESSENTIALS</div>
 <h2>Member Creative Studio</h2>
 <p>Explore professional, playful and trend-forward color palettes. Personalize, preview and export your designs. / Explora colores profesionales, juveniles y modernos. Personaliza, visualiza y descarga tus diseños.</p>
-<iframe title="BelanQora Creative Studio V2" loading="lazy" src="./creative-studio.html" allow="clipboard-write" style="width:100%;min-height:900px;border:1px solid #d7c6a5;border-radius:18px;background:white"></iframe>
+<div id="bq-studio-gate" style="background:#fffaf0;border:1px solid #d7c6a5;border-radius:18px;padding:25px;margin-top:22px;text-align:center" role="status" aria-live="polite">Verificando tu membresía de BelanQora Essentials…</div>
+<iframe id="bq-protected-studio" title="BelanQora Creative Studio — members only" style="display:none;width:100%;min-height:900px;border:1px solid #d7c6a5;border-radius:18px;background:white;margin-top:20px" referrerpolicy="no-referrer"></iframe>
+<script>
+(function(){
+ const API='https://ycfzgiiijspvccqrbghm.supabase.co';
+ const KEY='sb_publishable_0g4WqjfgSSq9uMnpsLhEwQ_iFwNXXST';
+ const gate=document.getElementById('bq-studio-gate'),frame=document.getElementById('bq-protected-studio');
+ let loadedFor=null;
+ function notice(message){gate.style.display='block';gate.textContent=message;frame.style.display='none';frame.removeAttribute('srcdoc');loadedFor=null;}
+ async function load(){
+   if(!window.supabase){notice('Servicio de acceso no disponible. Actualiza la página e inténtalo de nuevo.');return;}
+   try{
+     const client=window.supabase.createClient(API,KEY,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}});
+     const {data:{session},error}=await client.auth.getSession();
+     if(error||!session){notice('Inicia sesión en BelanQora para acceder a Creative Studio.');return;}
+     const {data:{user},error:userError}=await client.auth.getUser();
+     if(userError||!user){notice('Tu sesión expiró. Inicia sesión nuevamente.');return;}
+     if(loadedFor===user.id&&frame.hasAttribute('srcdoc'))return;
+     gate.textContent='Verificando membresía activa…';
+     const response=await fetch(API+'/functions/v1/bq-studio-access',{method:'POST',headers:{'Authorization':'Bearer '+session.access_token,'apikey':KEY,'Content-Type':'application/json'},body:'{}',cache:'no-store'});
+     if(response.status===401){notice('Inicia sesión nuevamente para acceder al estudio.');return;}
+     if(response.status===403){notice('Creative Studio es exclusivo para miembros con una suscripción Essentials activa. Activa tu membresía para continuar.');return;}
+     if(!response.ok)throw new Error('access_unavailable');
+     const html=await response.text();
+     if(!html.trim().toLowerCase().startsWith('<!doctype html>'))throw new Error('invalid_studio');
+     frame.srcdoc=html;loadedFor=user.id;frame.style.display='block';gate.style.display='none';
+   }catch(err){console.error('BelanQora studio access:',err);notice('No se pudo verificar el acceso. Actualiza la página e inténtalo nuevamente.');}
+ }
+ window.addEventListener('load',load);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});
+ window.addEventListener('bq-membership-updated',load);
+ window.addEventListener('storage',e=>{if(e.key&&e.key.includes('auth-token')){notice('Actualizando sesión…');load()}});
+})();
+</script>
 </div></section>
 <!-- End BelanQora Member Creative Studio V2 -->
 </body></html>
