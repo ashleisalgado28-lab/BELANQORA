@@ -398,7 +398,40 @@ const el=id=>document.getElementById(id),msg=t=>{el('bq-member-message').textCon
 if(!window.supabase){msg('Account service could not load. Check your internet connection.');return;}
 const client=window.supabase.createClient(API,KEY,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}});let user=null,member=false;
 async function refresh(){try{const {data:{session},error:sessionError}=await client.auth.getSession();if(sessionError)throw sessionError;let u=null;if(session){const {data:{user:verifiedUser},error:userError}=await client.auth.getUser();if(userError)throw userError;u=verifiedUser;}user=u;member=false;let status='Guest / Invitado';if(u){const r=await client.from('bq_memberships').select('status,current_period_end').eq('user_id',u.id).maybeSingle();if(r.error)throw r.error;const m=r.data;member=!!m&&['active','trialing'].includes(m.status)&&(!m.current_period_end||Date.parse(m.current_period_end)>Date.now());status=member?'Active member / Miembro activo':(m?'Subscription: '+m.status:'Account ready — no active membership');}el('bq-status').textContent=status;el('bq-logout').hidden=!u;el('bq-signup').hidden=!!u;el('bq-login').hidden=!!u;el('bq-save-design').disabled=!member;el('bq-load-designs').disabled=!member;el('bq-checkout').disabled=!u;el('bq-portal').disabled=!u;}catch(e){msg('Unable to verify membership: '+e.message+' — Please try logging in again.')}}
-async function sign(mode){const email=el('bq-email').value.trim(),password=el('bq-password').value;if(!email||password.length<8){msg('Enter an email and a password of at least 8 characters.');return}const r=mode==='signup'?await client.auth.signUp({email,password,options:{emailRedirectTo:'https://ashleisalgado28-lab.github.io/BELANQORA/'}}):await client.auth.signInWithPassword({email,password});if(r.error)msg(r.error.message);else{msg(mode==='signup'?'Account requested. Check your email if confirmation is required.':'Logged in successfully.');await refresh()}}
+let bqAuthBusy=false;
+let bqSignupCooldownUntil=0;
+async function sign(mode){
+  const email=el('bq-email').value.trim(),password=el('bq-password').value;
+  if(bqAuthBusy)return;
+  if(!email||password.length<8){msg('Enter an email and a password of at least 8 characters.');return}
+  if(mode==='signup'&&Date.now()<bqSignupCooldownUntil){
+    msg('A confirmation email was recently requested. Please check your inbox and spam folder before trying again.');
+    return;
+  }
+  bqAuthBusy=true;
+  const signupButton=el('bq-signup'),loginButton=el('bq-login');
+  signupButton.disabled=true;loginButton.disabled=true;
+  try{
+    const r=mode==='signup'
+      ?await client.auth.signUp({email,password,options:{emailRedirectTo:'https://ashleisalgado28-lab.github.io/BELANQORA/'}})
+      :await client.auth.signInWithPassword({email,password});
+    if(r.error){
+      if(r.error.status===429||r.error.code==='over_email_send_rate_limit'){
+        bqSignupCooldownUntil=Date.now()+60000;
+        msg('Email request limit reached. Please wait before retrying. Do not repeatedly click Sign Up.');
+      }else if(r.error.code==='email_not_confirmed'){
+        msg('Please confirm your email before signing in. Check your inbox and spam folder.');
+      }else{msg(r.error.message)}
+      return;
+    }
+    if(mode==='signup'){
+      bqSignupCooldownUntil=Date.now()+60000;
+      msg('Registration request received. Check your inbox and spam folder, then open the newest confirmation email only once.');
+    }else{msg('Logged in successfully.')}
+    await refresh();
+  }catch(e){msg('Authentication unavailable. Please try again later.')}
+  finally{bqAuthBusy=false;signupButton.disabled=false;loginButton.disabled=false}
+}
 el('bq-signup').onclick=()=>sign('signup');el('bq-login').onclick=()=>sign('login');el('bq-logout').onclick=async()=>{await client.auth.signOut();msg('Signed out.');await refresh()};
 function designSettings(){const fields=['bq-brand','bq-business','bq-style','bq-format','bq-font','card-business-name','card-phone','card-email'];const data={};for(const id of fields){const e=el(id);if(e)data[id]=e.value}return data}
 el('bq-save-design').onclick=async()=>{if(!member||!user)return;const name=el('bq-design-name').value.trim();if(!name){msg('Enter a design name.');return}const r=await client.from('bq_designs').insert({user_id:user.id,name,design_data:designSettings()});msg(r.error?r.error.message:'Design settings saved.');};
